@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "QRQ PON",
+    "slug": "tps-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon_2.png",
+    "scheme": "tpsmobile",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+
+    "ios": {
+      "supportsTablet": true
+    },
+
+    "android": {
+      "package": "com.samuelvillanueva.tpsmobile",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon_2.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/icon_2.png"
+    },
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon_2.png",
+          "imageWidth": 300,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ]
+    ],
+
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "07da9c4e-301a-4503-992c-2610551f8795"
+      }
+    }
+  }
+}
