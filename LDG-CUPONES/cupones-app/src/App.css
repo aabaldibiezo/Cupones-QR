@@ -1,0 +1,54 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 15px 40px;
+  background-color: #111;
+  color: white;
+}
+
+.navbar a {
+  margin-left: 20px;
+  color: white;
+  text-decoration: none;
+}
+
+.hero {
+  text-align: center;
+  padding: 80px 20px;
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: white;
+}
+
+.hero button {
+  padding: 12px 25px;
+  border: none;
+  background-color: white;
+  color: #ff416c;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.coupon-section {
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.preview img {
+  width: 300px;
+  margin-top: 20px;
+  border-radius: 10px;
+}
+
+.footer {
+  background-color: #111;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
