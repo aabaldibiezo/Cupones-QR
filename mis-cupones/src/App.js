@@ -41,7 +41,7 @@ const AdminPanel = ({
       <html>
         <head><title>Imprimir QR - ${promoData.titulo}</title></head>
         <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; text-align:center;">
-          <h1 style="margin-bottom:10px;">PROMO FLASH</h1>
+          <h1 style="margin-bottom:10px;">QR QPON</h1>
           <h2 style="color:#2563eb;">${promoData.titulo || 'Promoción'}</h2>
           <img src="${dataUrl}" style="width:350px; height:350px; border: 10px solid #eee; padding:10px;"/>
           <p style="margin-top:20px; font-size:20px;">Escanea con la App para validar</p>
@@ -68,7 +68,7 @@ const AdminPanel = ({
   return (
     <div style={{padding:'30px', maxWidth:'1200px', margin:'0 auto', fontFamily:'sans-serif'}}>
       <header style={headerStyle}>
-        <h1>Promo-Flash ICAM</h1>
+        <h1>QR QPON</h1>
         <nav style={{display:'flex', gap:'10px'}}>
           <button onClick={() => setView('empresas')} style={navBtn(view==='empresas')}>Empresas</button>
           <button onClick={() => setView('promociones')} style={navBtn(view==='promociones')}>Promociones</button>
