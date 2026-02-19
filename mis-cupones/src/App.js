@@ -1,194 +1,222 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import { QRCodeCanvas } from 'qrcode.react';
-import { PlusCircle, Trash2, BarChart3, List, Save } from 'lucide-react';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Iconos de Leaflet
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 function App() {
-  const [promociones, setPromociones] = useState([]);
-  const [vista, setVista] = useState('listado');
-  const [stats, setStats] = useState({ total: 0, exitosos: 0, fallidos: 0 });
-  const [formData, setFormData] = useState({
-    nombre_negocio: '', titulo_promo: '', descripcion: '',
-    codigo_cupon: '', latitud: '', longitud: '',
-    hora_inicio: '', hora_fin: '', logo_url: ''
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [view, setView] = useState('empresas'); 
+  const [empresas, setEmpresas] = useState([]);
+  const [reportes, setReportes] = useState([]);
+  const [loginData, setLoginData] = useState({ user: '', pass: '' });
+  
+  // Estados de formularios
+  const [empresaForm, setEmpresaForm] = useState({ nombre: '', rubro: '', logo: null });
+  const [promoData, setPromoData] = useState({
+    empresa_id: '', titulo: '', codigo: '', 
+    latitud: -17.3935, longitud: -66.1570, 
+    inicio: '09:00', fin: '21:00', validez: ''
   });
 
   useEffect(() => {
-    fetchPromociones();
-    fetchStats();
-  }, [vista]);
-
-  async function fetchPromociones() {
-    const { data } = await supabase.from('promociones').select('*').order('created_at', { ascending: false });
-    setPromociones(data || []);
-  }
-
-  async function fetchStats() {
-    const { data, count } = await supabase.from('logs_escaneos').select('*', { count: 'exact' });
-    if (data) {
-      const exitosos = data.filter(log => log.es_valido).length;
-      setStats({ total: count, exitosos, fallidos: count - exitosos });
+    if (isLoggedIn) {
+      fetchEmpresas();
+      fetchReportes();
     }
+  }, [isLoggedIn]);
+
+  async function fetchEmpresas() {
+    const { data } = await supabase.from('empresas').select('*');
+    setEmpresas(data || []);
   }
 
-  const handleSubmit = async (e) => {
+  async function fetchReportes() {
+    const { data } = await supabase.from('logs_escaneos').select('*, promociones(titulo_promo)');
+    setReportes(data || []);
+  }
+
+  const handleLogin = (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('promociones').insert([formData]);
-    if (error) {
-      alert("Error de RLS o Validación: " + error.message);
+    if (loginData.user === 'admin' && loginData.pass === '12345') {
+      setIsLoggedIn(true);
     } else {
-      alert("¡Promoción creada exitosamente");
-      setVista('listado');
+      alert("Acceso denegado");
     }
   };
 
-  const eliminarPromo = async (id) => {
-    if (window.confirm("¿Seguro que deseas eliminar este cupón?")) {
-      await supabase.from('promociones').delete().eq('id', id);
-      fetchPromociones();
+  const guardarEmpresa = async (e) => {
+    e.preventDefault();
+    let logoUrl = '';
+    
+    // Lógica para subir logo si existe
+    if (empresaForm.logo) {
+      const file = empresaForm.logo;
+      const fileName = `${Date.now()}-${file.name}`;
+      const { data, error } = await supabase.storage.from('imagenes').upload(`logos/${fileName}`, file);
+      if (data) {
+        const { data: publicData } = supabase.storage.from('imagenes').getPublicUrl(`logos/${fileName}`);
+        logoUrl = publicData.publicUrl;
+      }
+    }
+
+    const { error } = await supabase.from('empresas').insert([
+      { nombre: empresaForm.nombre, rubro: empresaForm.rubro, logo_url: logoUrl }
+    ]);
+
+    if (!error) {
+      alert("Empresa registrada con éxito");
+      fetchEmpresas();
     }
   };
+
+  function LocationPicker() {
+    useMapEvents({
+      click(e) {
+        setPromoData({ ...promoData, latitud: e.latlng.lat, longitud: e.latlng.lng });
+      },
+    });
+    return <Marker position={[promoData.latitud, promoData.longitud]} />;
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <div style={{display:'flex', justifyContent:'center', alignItems:'center', height:'100vh', background:'#1e293b'}}>
+        <form onSubmit={handleLogin} style={{background:'white', padding:'2rem', borderRadius:'8px', width:'320px', boxShadow:'0 4px 6px rgba(0,0,0,0.1)'}}>
+          <h2 style={{textAlign:'center', color:'#1e293b', marginBottom:'1.5rem'}}>MIS Admin Login</h2>
+          <input type="text" placeholder="Usuario" style={{width:'100%', marginBottom:'1rem', padding:'10px', border:'1px solid #ccc', borderRadius:'4px'}} 
+            onChange={e => setLoginData({...loginData, user: e.target.value})} />
+          <input type="password" placeholder="Contraseña" style={{width:'100%', marginBottom:'1.5rem', padding:'10px', border:'1px solid #ccc', borderRadius:'4px'}} 
+            onChange={e => setLoginData({...loginData, pass: e.target.value})} />
+          <button type="submit" style={{width:'100%', padding:'12px', background:'#2563eb', color:'white', border:'none', borderRadius:'4px', fontWeight:'bold', cursor:'pointer'}}>ENTRAR</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
-      {/* Navbar */}
-      <nav className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-        <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-lg text-white font-bold text-xl">QR</div>
-          <span className="font-bold text-xl tracking-tight">Promo-Flash MIS</span>
-        </div>
-        <div className="flex gap-4">
-          <button onClick={() => setVista('listado')} className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-md transition-all">
-            <List size={18}/> Listado
-          </button>
-          <button onClick={() => setVista('reportes')} className="flex items-center gap-2 px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-md transition-all">
-            <BarChart3 size={18}/> Estadísticas
-          </button>
-          <button onClick={() => setVista('nuevo')} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 shadow-md transition-all">
-            <PlusCircle size={18}/> Nueva Promo
-          </button>
-        </div>
-      </nav>
+    <div style={{padding:'30px', fontFamily:'Segoe UI, Tahoma, Geneva, Verdana, sans-serif', maxWidth:'1200px', margin:'0 auto'}}>
+      <header style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px', borderBottom:'2px solid #eee', paddingBottom:'15px'}}>
+        <h1 style={{color:'#1e293b', margin:0}}>Promo-Flash MIS</h1>
+        <nav style={{display:'flex', gap:'15px'}}>
+          <button onClick={() => setView('empresas')} style={navBtnStyle(view === 'empresas')}>Empresas</button>
+          <button onClick={() => setView('promociones')} style={navBtnStyle(view === 'promociones')}>Promociones</button>
+          <button onClick={() => setView('reportes')} style={navBtnStyle(view === 'reportes')}>Reportes</button>
+        </nav>
+      </header>
 
-      <main className="p-8">
-        {/* LISTADO DE CUPONES */}
-        {vista === 'listado' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {promociones.map(p => (
-              <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
-                <div className="p-5">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="font-bold text-lg text-slate-800">{p.nombre_negocio}</h3>
-                      <p className="text-blue-600 text-sm font-semibold">{p.titulo_promo}</p>
-                    </div>
-                    <button onClick={() => eliminarPromo(p.id)} className="text-slate-400 hover:text-red-500 transition-colors">
-                      <Trash2 size={20}/>
-                    </button>
-                  </div>
-                  <div className="flex justify-center bg-slate-50 p-4 rounded-xl mb-4 border border-dashed border-slate-300">
-                    <QRCodeCanvas value={`https://tps-app-url.com/scan?id=${p.id}`} size={140} />
-                  </div>
-                  <div className="text-xs text-slate-500 space-y-1">
-                    <p>📍 {p.latitud}, {p.longitud}</p>
-                    <p>⏰ {p.hora_inicio} - {p.hora_fin}</p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+      {view === 'empresas' && (
+        <section style={{background:'white', padding:'25px', borderRadius:'10px', boxShadow:'0 2px 10px rgba(0,0,0,0.05)'}}>
+          <h2 style={{marginTop:0}}>Gestión de Clientes (Empresas)</h2>
+          <form onSubmit={guardarEmpresa} style={{display:'flex', flexWrap:'wrap', gap:'15px', marginBottom:'30px'}}>
+            <input type="text" placeholder="Nombre de Empresa" required style={inputStyle} onChange={e => setEmpresaForm({...empresaForm, nombre: e.target.value})} />
+            <input type="text" placeholder="Rubro (Comida/Ropa)" style={inputStyle} onChange={e => setEmpresaForm({...empresaForm, rubro: e.target.value})} />
+            <input type="file" onChange={e => setEmpresaForm({...empresaForm, logo: e.target.files[0]})} />
+            <button type="submit" style={{background:'#10b981', color:'white', border:'none', padding:'10px 20px', borderRadius:'4px', cursor:'pointer'}}>Registrar Cliente</button>
+          </form>
+          
+          <table style={{width:'100%', borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{background:'#f8fafc', textAlign:'left'}}>
+                <th style={tdStyle}>Logo</th>
+                <th style={tdStyle}>Nombre</th>
+                <th style={tdStyle}>Rubro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {empresas.map(emp => (
+                <tr key={emp.id} style={{borderBottom:'1px solid #eee'}}>
+                  <td style={tdStyle}>{emp.logo_url && <img src={emp.logo_url} width="40" alt="logo" />}</td>
+                  <td style={tdStyle}>{emp.nombre}</td>
+                  <td style={tdStyle}>{emp.rubro}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
-        {/* FORMULARIO DE REGISTRO */}
-        {vista === 'nuevo' && (
-          <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-            <h2 className="text-2xl font-bold mb-6 text-slate-800 flex items-center gap-2">
-              <PlusCircle className="text-blue-600" /> Registrar Promoción
-            </h2>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Nombre Negocio</label>
-                  <input type="text" className="w-full border border-slate-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500" 
-                    onChange={e => setFormData({...formData, nombre_negocio: e.target.value})} required />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Título Promo</label>
-                  <input type="text" className="w-full border border-slate-300 p-2 rounded-lg" 
-                    onChange={e => setFormData({...formData, titulo_promo: e.target.value})} required />
-                </div>
+      {view === 'promociones' && (
+        <section style={{display:'grid', gridTemplateColumns:'1fr 350px', gap:'30px'}}>
+          <div style={{background:'white', padding:'25px', borderRadius:'10px', boxShadow:'0 2px 10px rgba(0,0,0,0.05)'}}>
+            <h3>Crear Bien / Servicio (Promoción)</h3>
+            <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
+              <select style={inputStyle} onChange={e => setPromoData({...promoData, empresa_id: e.target.value})}>
+                <option value="">Seleccione Empresa...</option>
+                {empresas.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
+              </select>
+              <input type="text" placeholder="Título de la Promo" style={inputStyle} onChange={e => setPromoData({...promoData, titulo: e.target.value})} />
+              <input type="text" placeholder="Código de Cupón" style={inputStyle} onChange={e => setPromoData({...promoData, codigo: e.target.value})} />
+              
+              <div style={{height:'350px', border:'1px solid #ccc', borderRadius:'8px', overflow:'hidden'}}>
+                <MapContainer center={[-17.3935, -66.1570]} zoom={13} style={{height: '100%'}}>
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  <LocationPicker />
+                </MapContainer>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-slate-700">Código del Cupón (Lo que verá el cliente)</label>
-                <input type="text" className="w-full border border-slate-300 p-2 rounded-lg" 
-                  onChange={e => setFormData({...formData, codigo_cupon: e.target.value})} required />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Latitud</label>
-                  <input type="number" step="any" className="w-full border border-slate-300 p-2 rounded-lg" 
-                    onChange={e => setFormData({...formData, latitud: parseFloat(e.target.value)})} required />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Longitud</label>
-                  <input type="number" step="any" className="w-full border border-slate-300 p-2 rounded-lg" 
-                    onChange={e => setFormData({...formData, longitud: parseFloat(e.target.value)})} required />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Hora Inicio</label>
-                  <input type="time" className="w-full border border-slate-300 p-2 rounded-lg" 
-                    onChange={e => setFormData({...formData, hora_inicio: e.target.value})} required />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-slate-700">Hora Fin</label>
-                  <input type="time" className="w-full border border-slate-300 p-2 rounded-lg" 
-                    onChange={e => setFormData({...formData, hora_fin: e.target.value})} required />
-                </div>
-              </div>
-              <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg flex items-center justify-center gap-2">
-                <Save size={20}/> Guardar Promoción
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ESTADÍSTICAS */}
-        {vista === 'reportes' && (
-          <div className="max-w-4xl mx-auto space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <StatCard title="Total Escaneos" value={stats.total} color="blue" />
-              <StatCard title="Canjes Exitosos" value={stats.exitosos} color="green" />
-              <StatCard title="Intentos Fallidos" value={stats.fallidos} color="red" />
-            </div>
-            <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-              <h3 className="font-bold text-lg mb-2">Información de Gestión</h3>
-              <p className="text-slate-600 text-sm leading-relaxed">
-                Este panel permite al administrador monitorear el desempeño de los QRs en tiempo real. 
-                Los intentos fallidos indican que los usuarios están intentando canjear cupones fuera de las zonas geográficas permitidas o de los horarios establecidos.
-              </p>
             </div>
           </div>
-        )}
-      </main>
+
+          <div style={{background:'white', padding:'25px', borderRadius:'10px', boxShadow:'0 2px 10px rgba(0,0,0,0.05)', textAlign:'center'}}>
+            <h3>Vista Previa QR</h3>
+            <div style={{padding:'20px', border:'2px dashed #ccc', borderRadius:'10px', background:'#fafafa'}}>
+              <QRCodeCanvas value={`promoflash://abrir?id=TEMP`} size={200} />
+            </div>
+            <p style={{fontSize:'12px', color:'#64748b', marginTop:'15px'}}>Deep Link: promoflash://abrir</p>
+          </div>
+        </section>
+      )}
+
+      {view === 'reportes' && (
+        <section style={{background:'white', padding:'25px', borderRadius:'10px', boxShadow:'0 2px 10px rgba(0,0,0,0.05)'}}>
+          <h2>Reportes de Estadísticas</h2>
+          <table style={{width:'100%', borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{background:'#f8fafc', textAlign:'left'}}>
+                <th style={tdStyle}>Fecha/Hora</th>
+                <th style={tdStyle}>Promoción</th>
+                <th style={tdStyle}>Válido</th>
+                <th style={tdStyle}>Motivo/Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportes.map(log => (
+                <tr key={log.id} style={{borderBottom:'1px solid #eee'}}>
+                  <td style={tdStyle}>{new Date(log.fecha_hora).toLocaleString()}</td>
+                  <td style={tdStyle}>{log.promociones?.titulo_promo}</td>
+                  <td style={tdStyle}>{log.es_valido ? '✅' : '❌'}</td>
+                  <td style={tdStyle}>{log.motivo_error}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   );
 }
 
-// Componente pequeño para las tarjetas de stats
-function StatCard({ title, value, color }) {
-  const colors = {
-    blue: "border-blue-500",
-    green: "border-green-500",
-    red: "border-red-500"
-  };
-  return (
-    <div className={`bg-white p-6 rounded-2xl shadow-sm border-b-4 ${colors[color]} text-center`}>
-      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">{title}</p>
-      <p className="text-4xl font-black text-slate-800">{value}</p>
-    </div>
-  );
-}
+// Estilos rápidos
+const navBtnStyle = (active) => ({
+  padding: '8px 16px',
+  background: active ? '#2563eb' : '#f1f5f9',
+  color: active ? 'white' : '#475569',
+  border: 'none',
+  borderRadius: '6px',
+  cursor: 'pointer',
+  fontWeight: 'bold'
+});
+
+const inputStyle = { padding:'10px', border:'1px solid #ccc', borderRadius:'4px', flex:'1', minWidth:'200px' };
+const tdStyle = { padding:'12px', borderBottom:'1px solid #eee' };
 
 export default App;
