@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon_2.png",
     "scheme": "tpsmobile",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
 
     "ios": {
       "supportsTablet": true
@@ -16,6 +16,14 @@
     "android": {
       "package": "com.samuelvillanueva.tpsmobile",
       "versionCode": 2,
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE",
+        "INTERNET"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon_2.png",
         "backgroundColor": "#ffffff"
@@ -32,16 +40,16 @@
     "plugins": [
       "expo-router",
       [
-        "expo-splash-screen",
+        "expo-build-properties",
         {
-          "image": "./assets/images/splash-icon_2.png",
-          "imageWidth": 300,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
+          "android": {
+            "usesCleartextTraffic": true
           }
         }
+      ],
+      [
+        "expo-splash-screen",
+        { "image": "./assets/images/splash-icon_2.png" }
       ]
     ],
 
@@ -51,10 +59,10 @@
     },
 
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "07da9c4e-301a-4503-992c-2610551f8795"
-      }
+      //"router": {},
+      //"eas": {
+      //  "projectId": "07da9c4e-301a-4503-992c-2610551f8795"
+      //}
     }
   }
 }

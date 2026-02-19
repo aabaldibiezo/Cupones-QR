@@ -4,7 +4,7 @@ import React from "react";
 const Navbar = () => {
   return (
     <nav className="navbar navbar-expand-lg navbar-dark bg-dark px-4">
-      <a className="navbar-brand" href="#">CuponExpress</a>
+      <a className="navbar-brand" href="#">QR QPON</a>
 
       <button
         className="navbar-toggler"

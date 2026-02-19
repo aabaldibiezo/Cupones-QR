@@ -12,9 +12,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { supabase } from "../../src/services/supabaseClient";
 
+// Importamos la lógica real de extracción e integración
 import { extractIdFromQr } from "../../src/utils/qr";
-import { validateCouponMock, MisResponse } from "../../src/services/misMock";
+import { validateCouponReal } from "../../src/services/misService";
 
 type UiState = "scanning" | "loading" | "result";
 type GpsStatus = "checking" | "ready" | "no_permission" | "service_off";
@@ -44,15 +46,17 @@ export default function Screen() {
   const [scanned, setScanned] = useState(false);
 
   const [promoId, setPromoId] = useState<string | null>(null);
-  const [misResponse, setMisResponse] = useState<MisResponse | null>(null);
+  const [misResponse, setMisResponse] = useState<any>(null);
 
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>("checking");
 
+  // Solicitud automática de permisos de cámara
   useEffect(() => {
     if (!camPerm) return;
     if (!camPerm.granted) requestCamPerm();
   }, [camPerm, requestCamPerm]);
 
+  // Verificación inicial de GPS
   useEffect(() => {
     refreshGpsStatus();
   }, []);
@@ -60,43 +64,33 @@ export default function Screen() {
   async function refreshGpsStatus() {
     try {
       setGpsStatus("checking");
-
-      const perm = await Location.getForegroundPermissionsAsync();
-      if (perm.status !== "granted") {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
         setGpsStatus("no_permission");
         return;
       }
 
       const servicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!servicesEnabled) {
-        setGpsStatus("service_off");
-        return;
-      }
-
-      setGpsStatus("ready");
+      setGpsStatus(servicesEnabled ? "ready" : "service_off");
     } catch {
       setGpsStatus("service_off");
     }
   }
 
   async function getLocationOrNull() {
-    const perm = await Location.getForegroundPermissionsAsync();
-    if (perm.status !== "granted") {
-      const req = await Location.requestForegroundPermissionsAsync();
-      if (req.status !== "granted") {
-        setGpsStatus("no_permission");
-        return { lat: null as number | null, lng: null as number | null };
-      }
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") {
+      setGpsStatus("no_permission");
+      return { lat: null, lng: null };
     }
 
     const servicesEnabled = await Location.hasServicesEnabledAsync();
     if (!servicesEnabled) {
       setGpsStatus("service_off");
-      return { lat: null as number | null, lng: null as number | null };
+      return { lat: null, lng: null };
     }
 
     setGpsStatus("ready");
-
     const loc = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
     });
@@ -105,26 +99,41 @@ export default function Screen() {
   }
 
   async function processQr(raw: string) {
-    setUiState("loading");
+  setUiState("loading");
 
-    const id = extractIdFromQr(raw);
-    setPromoId(id || "(sin id)");
+  const id = extractIdFromQr(raw);
+  setPromoId(id || "(sin id)");
 
-    // Si no hay ID extraíble, ni llamamos al MIS
-    if (!id) {
-      setMisResponse({ estado: 2, mensaje: "QR inválido / sin ID ❌" });
-      setUiState("result");
-      return;
-    }
-
-    const { lat, lng } = await getLocationOrNull();
-
-    // ✅ luego cambias validateCouponMock por validateCouponReal(fetch al MIS)
-    const response = await validateCouponMock({ id, lat, lng, raw });
-
-    setMisResponse(response);
+  if (!id) {
+    setMisResponse({ estado: 2, mensaje: "QR inválido o sin ID ❌" });
     setUiState("result");
+    return;
   }
+
+  const { lat, lng } = await getLocationOrNull();
+
+  try {
+    // 1. Llamas a la validación que ya tenías
+    const response = await validateCouponReal(id, lat, lng);
+    setMisResponse(response);
+
+    // 2. AQUÍ INSERTAS EL LOG EN SUPABASE
+    // Esto es lo que hará que aparezcan datos en tu pestaña de "Monitoreo" del Admin
+    await supabase.from('logs_escaneos').insert([
+  { 
+    id_qr: id,             // Tu tabla usa 'id_qr'
+    es_valido: response.estado === 1, 
+    fecha_hora: new Date().toISOString(),
+    motivo_error: response.estado !== 1 ? response.mensaje : "" // Opcional: guardamos por qué falló
+  }
+]);
+
+  } catch (error) {
+    setMisResponse({ estado: 2, mensaje: "Error de conexión con el MIS 🌐" });
+  }
+  
+  setUiState("result");
+}
 
   function reset() {
     setScanned(false);
@@ -134,39 +143,17 @@ export default function Screen() {
     refreshGpsStatus();
   }
 
-  // ---- Permisos cámara ----
-  if (!camPerm) {
-    return (
-      <View style={[styles.center, { backgroundColor: colors.bg }]}>
-        <ActivityIndicator />
-        <Text style={{ marginTop: 10, color: colors.sub }}>
-          Preparando cámara…
-        </Text>
-      </View>
-    );
-  }
+  // ---- RENDERIZADO: Permisos ----
+  if (!camPerm) return <View style={[styles.center, { backgroundColor: colors.bg }]}><ActivityIndicator /></View>;
 
   if (!camPerm.granted) {
     return (
       <View style={[styles.center, { backgroundColor: colors.bg, padding: 20 }]}>
-        <LinearGradient
-          colors={[colors.primary, colors.secondary]}
-          style={[styles.heroCard, { borderColor: colors.border }]}
-        >
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.heroCard}>
           <MaterialCommunityIcons name="camera" size={34} color="white" />
           <Text style={styles.heroTitle}>Permiso de cámara</Text>
-          <Text style={styles.heroSub}>
-            Necesitamos acceso para escanear el QR del cupón.
-          </Text>
-
-          <Pressable
-            onPress={requestCamPerm}
-            style={({ pressed }) => [
-              styles.primaryBtn,
-              { opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <MaterialCommunityIcons name="check" size={18} color="white" />
+          <Text style={styles.heroSub}>Necesario para escanear cupones QR.</Text>
+          <Pressable onPress={requestCamPerm} style={styles.primaryBtn}>
             <Text style={styles.primaryBtnText}>Permitir cámara</Text>
           </Pressable>
         </LinearGradient>
@@ -174,100 +161,51 @@ export default function Screen() {
     );
   }
 
-  // ---- Loading ----
+  // ---- RENDERIZADO: Loading ----
   if (uiState === "loading") {
     return (
       <View style={[styles.center, { backgroundColor: colors.bg }]}>
-        <LinearGradient
-          colors={[colors.primary, colors.secondary]}
-          style={[styles.smallCard, { borderColor: colors.border }]}
-        >
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.smallCard}>
           <ActivityIndicator color="white" />
-          <Text style={{ color: "white", marginTop: 10, fontWeight: "700" }}>
-            Validando cupón…
-          </Text>
-          <Text style={{ color: "rgba(255,255,255,0.85)", marginTop: 6 }}>
-            Consultando el servicio (MIS)
-          </Text>
+          <Text style={{ color: "white", marginTop: 10, fontWeight: "700" }}>Validando en MIS...</Text>
         </LinearGradient>
       </View>
     );
   }
 
-  // ---- Resultado ----
+  // ---- RENDERIZADO: Resultado ----
   if (uiState === "result") {
     const estado = misResponse?.estado;
-
-    const estadoColor =
-      estado === 1 ? colors.success : estado === 3 ? colors.warn : colors.danger;
-
-    const estadoLabel =
-      estado === 1
-        ? "Válido"
-        : estado === 2
-        ? "No existe / QR inválido"
-        : estado === 3
-        ? "Expirado"
-        : estado === 4
-        ? "Fuera de perímetro"
-        : "Sin ubicación";
+    const estadoColor = estado === 1 ? colors.success : estado === 3 ? colors.warn : colors.danger;
+    const labels: Record<number, string> = { 1: "Válido", 2: "Inexistente", 3: "Expirado", 4: "Fuera de Rango", 5: "Sin GPS" };
 
     return (
       <View style={[styles.container, { backgroundColor: colors.bg }]}>
-        <LinearGradient
-          colors={[colors.primary, colors.secondary]}
-          style={styles.header}
-        >
-          <Text style={styles.headerTitle}>Resultado</Text>
-          <Text style={styles.headerSub}>Cupón: {promoId}</Text>
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
+          <Text style={styles.headerTitle}>Resultado de Validación</Text>
+          <Text style={styles.headerSub}>ID: {promoId}</Text>
         </LinearGradient>
 
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}
-        >
-          <View style={styles.row}>
-            <View
-              style={[
-                styles.badge,
-                { backgroundColor: estadoColor, borderColor: "transparent" },
-              ]}
-            >
-              <Text style={styles.badgeText}>{estadoLabel}</Text>
-            </View>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={[styles.badge, { backgroundColor: estadoColor }]}>
+            <Text style={styles.badgeText}>{labels[estado] || "Error"}</Text>
           </View>
+          <Text style={{ color: colors.text, marginTop: 15, fontSize: 16 }}>{misResponse?.mensaje}</Text>
 
-          <Text style={{ color: colors.text, marginTop: 10, fontSize: 16 }}>
-            {misResponse?.mensaje}
-          </Text>
-
-          {/* Solo renderiza imagen si VÁLIDO */}
-          {estado === 1 && !!misResponse && "image_url" in misResponse && (
-            <Image
-              source={{ uri: misResponse.image_url }}
-              style={[styles.image, { borderColor: colors.border }]}
-              resizeMode="cover"
-            />
+          {estado === 1 && misResponse?.image_url && (
+            <Image source={{ uri: misResponse.image_url }} style={styles.image} resizeMode="cover" />
           )}
 
-          <Pressable
-            onPress={reset}
-            style={({ pressed }) => [
-              styles.scanAgainBtn,
-              { borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
-            ]}
-          >
+          <Pressable onPress={reset} style={styles.scanAgainBtn}>
             <MaterialCommunityIcons name="qrcode-scan" size={20} color="white" />
-            <Text style={styles.scanAgainText}>Escanear otro</Text>
+            <Text style={styles.scanAgainText}>Escanear nuevo</Text>
           </Pressable>
         </View>
       </View>
     );
   }
 
-  // ---- Scanner ----
+  // ---- RENDERIZADO: Scanner ----
   return (
     <View style={{ flex: 1, backgroundColor: "black" }}>
       <CameraView
@@ -279,43 +217,16 @@ export default function Screen() {
           processQr(result.data);
         }}
       />
-
       <View style={styles.scanFrame}>
-        <View style={[styles.corner, styles.tl]} />
-        <View style={[styles.corner, styles.tr]} />
-        <View style={[styles.corner, styles.bl]} />
-        <View style={[styles.corner, styles.br]} />
+        <View style={[styles.corner, styles.tl]} /><View style={[styles.corner, styles.tr]} />
+        <View style={[styles.corner, styles.bl]} /><View style={[styles.corner, styles.br]} />
       </View>
-
       <View style={styles.bottomOverlay}>
-        <LinearGradient
-          colors={["rgba(37,99,235,0.85)", "rgba(124,58,237,0.85)"]}
-          style={styles.bottomCard}
-        >
-          <Text style={styles.scanTitle}>Apunta al código QR del cupón</Text>
-
+        <LinearGradient colors={["rgba(37,99,235,0.9)", "rgba(124,58,237,0.9)"]} style={styles.bottomCard}>
+          <Text style={styles.scanTitle}>Apunta al QR del cupón</Text>
           <Text style={styles.scanSub}>
-            {gpsStatus === "checking"
-              ? "Verificando ubicación…"
-              : gpsStatus === "ready"
-              ? "Ubicación lista: se enviarán coordenadas reales"
-              : gpsStatus === "no_permission"
-              ? "Sin permiso de ubicación: MIS recibirá null"
-              : "GPS apagado: MIS recibirá null"}
+            GPS: {gpsStatus === "ready" ? "Conectado ✅" : "Problemas detectados ❌"}
           </Text>
-
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-            <Pressable
-              onPress={reset}
-              style={({ pressed }) => [
-                styles.smallBtnOutline,
-                { opacity: pressed ? 0.85 : 1 },
-              ]}
-            >
-              <MaterialCommunityIcons name="reload" size={18} color="white" />
-              <Text style={styles.smallBtnText}>Reset</Text>
-            </Pressable>
-          </View>
         </LinearGradient>
       </View>
     </View>
@@ -324,89 +235,30 @@ export default function Screen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-
   container: { flex: 1 },
-  header: { paddingTop: 54, paddingBottom: 18, paddingHorizontal: 18 },
+  header: { paddingTop: 60, paddingBottom: 20, paddingHorizontal: 20 },
   headerTitle: { color: "white", fontSize: 22, fontWeight: "800" },
-  headerSub: { color: "rgba(255,255,255,0.85)", marginTop: 6 },
-
-  card: { margin: 16, borderRadius: 18, padding: 14, borderWidth: 1 },
-
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-
-  badge: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 999 },
-  badgeText: { color: "white", fontWeight: "800" },
-
-  image: { width: "100%", height: 220, marginTop: 14, borderRadius: 14, borderWidth: 1 },
-
-  scanAgainBtn: {
-    marginTop: 14,
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 10,
-    backgroundColor: "#2563EB",
-    borderWidth: 1,
-  },
-  scanAgainText: { color: "white", fontWeight: "800", fontSize: 16 },
-
-  heroCard: {
-    width: "100%",
-    maxWidth: 420,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    alignItems: "center",
-  },
-  heroTitle: { color: "white", fontSize: 20, fontWeight: "900", marginTop: 10 },
-  heroSub: { color: "rgba(255,255,255,0.85)", marginTop: 8, textAlign: "center" },
-
-  primaryBtn: {
-    marginTop: 16,
-    backgroundColor: "rgba(0,0,0,0.25)",
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  primaryBtnText: { color: "white", fontWeight: "900" },
-
-  smallCard: {
-    width: "88%",
-    maxWidth: 420,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1,
-    alignItems: "center",
-  },
-
-  scanFrame: { position: "absolute", top: "22%", left: "10%", right: "10%", height: 280 },
-  corner: { position: "absolute", width: 34, height: 34, borderColor: "rgba(255,255,255,0.9)" },
-  tl: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 14 },
-  tr: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 14 },
-  bl: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 14 },
-  br: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 14 },
-
-  bottomOverlay: { position: "absolute", left: 14, right: 14, bottom: 20 },
-  bottomCard: { borderRadius: 18, padding: 14 },
-  scanTitle: { color: "white", fontSize: 16, fontWeight: "900" },
-  scanSub: { color: "rgba(255,255,255,0.9)", marginTop: 6 },
-
-  smallBtnOutline: {
-    flex: 1,
-    borderRadius: 14,
-    paddingVertical: 10,
-    justifyContent: "center",
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
-    backgroundColor: "rgba(255,255,255,0.12)",
-  },
-  smallBtnText: { color: "white", fontWeight: "900" },
+  headerSub: { color: "rgba(255,255,255,0.8)", marginTop: 5 },
+  card: { margin: 20, borderRadius: 20, padding: 20, borderWidth: 1, alignItems: 'center' },
+  badge: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  badgeText: { color: "white", fontWeight: "bold" },
+  image: { width: "100%", height: 200, marginTop: 20, borderRadius: 15 },
+  scanAgainBtn: { marginTop: 25, width: '100%', borderRadius: 15, padding: 15, backgroundColor: "#2563EB", flexDirection: 'row', justifyContent: 'center', gap: 10 },
+  scanAgainText: { color: "white", fontWeight: "bold" },
+  heroCard: { borderRadius: 25, padding: 30, alignItems: "center", width: '90%' },
+  heroTitle: { color: "white", fontSize: 20, fontWeight: "bold", marginTop: 15 },
+  heroSub: { color: "white", opacity: 0.8, marginTop: 10, textAlign: 'center' },
+  primaryBtn: { marginTop: 20, backgroundColor: "white", paddingVertical: 12, paddingHorizontal: 25, borderRadius: 12 },
+  primaryBtnText: { color: "#2563EB", fontWeight: "bold" },
+  smallCard: { padding: 30, borderRadius: 20, alignItems: 'center' },
+  scanFrame: { position: "absolute", top: "25%", left: "15%", right: "15%", height: 250 },
+  corner: { position: "absolute", width: 40, height: 40, borderColor: "white" },
+  tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 15 },
+  tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 15 },
+  bl: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 15 },
+  br: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 15 },
+  bottomOverlay: { position: "absolute", bottom: 40, left: 20, right: 20 },
+  bottomCard: { borderRadius: 20, padding: 20 },
+  scanTitle: { color: "white", fontSize: 18, fontWeight: "bold" },
+  scanSub: { color: "white", opacity: 0.9, marginTop: 5 }
 });
